@@ -1,0 +1,12 @@
+{
+    "RUT": "23567744K",
+    "Nombre": "ALICIA VARGAS ",
+    "Curso": "8A",
+    "Seleccion_Jerarquica": {
+        "HELENA SANHUEZA": 1,
+        "EMILIA OLMOS": 2,
+        "PEDRO FREIRE": 3,
+        "ANTONIO PINO": 4,
+        "CATALINA ODINO": 5
+    }
+}
