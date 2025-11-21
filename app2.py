@@ -7,12 +7,26 @@ import os
 import re
 
 # =========================
-# Configuración de Página
+# Configuración de Página y Estilos CSS
 # =========================
 st.set_page_config(page_title="Sociometría Interactiva", layout="wide")
 
+# Inyectamos CSS para ensanchar la barra lateral
+st.markdown(
+    """
+    <style>
+    [data-testid="stSidebar"] {
+        min_width: 450px;
+        max_width: 600px;
+        width: 500px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # =========================
-# Constantes y Estilos
+# Constantes
 # =========================
 COLORES_CURSO = {
     "Curso 1": "#FFFF00",  # Amarillo
@@ -74,24 +88,22 @@ def cargar_desde_carpeta(ruta_carpeta, nombre_curso):
 
 def crear_grilla_checkbox(nombres, key_prefix, default_check=False):
     """
-    Crea una lista de checkboxes distribuidos en 2 columnas.
-    Retorna la lista de nombres que fueron marcados.
+    Crea una lista de checkboxes en 2 columnas.
+    default_check controla si empiezan marcados o no.
     """
     seleccionados = []
     
-    # Checkbox maestro para marcar/desmarcar todos
+    # Checkbox maestro
     todos = st.checkbox("Seleccionar Todos", value=default_check, key=f"all_{key_prefix}")
     
-    # Creamos 2 columnas para distribución horizontal (side-by-side)
+    # Creamos 2 columnas para distribución horizontal
     col1, col2 = st.columns(2)
     
     for i, nombre in enumerate(nombres):
-        # Alternamos entre columna 1 y columna 2
         columna_actual = col1 if i % 2 == 0 else col2
-        
         with columna_actual:
-            # Usamos el estado del 'todos' como valor por defecto
-            # key única es necesaria para que Streamlit no se confunda
+            # Si el usuario marca "Todos", los hijos heredan ese estado
+            # Si no, heredan el estado individual (que por defecto aquí empieza igual al maestro)
             if st.checkbox(nombre, value=todos, key=f"{key_prefix}_{i}_{nombre}"):
                 seleccionados.append(nombre)
                 
@@ -136,7 +148,8 @@ with st.sidebar:
     # --- Curso 1 ---
     with st.expander(f"Curso 1 ({len(nombres_c1)})", expanded=True):
         if nombres_c1:
-            sel_c1 = crear_grilla_checkbox(nombres_c1, "c1", default_check=True)
+            # default_check=False para que empiece vacío
+            sel_c1 = crear_grilla_checkbox(nombres_c1, "c1", default_check=False)
             seleccionados_finales.extend(sel_c1)
         else:
             st.caption("Sin datos")
@@ -166,7 +179,8 @@ with st.sidebar:
 if not datos:
     st.error("⚠️ No se encontraron datos. Verifica las carpetas 'respuestas/cursoX'.")
 elif not seleccionados_finales:
-    st.info("👈 Selecciona alumnos en el menú lateral para ver el grafo.")
+    # Mensaje de bienvenida cuando no hay nadie seleccionado
+    st.info("👈 **Grafo vacío.** Por favor selecciona alumnos en la barra lateral izquierda para comenzar el análisis.")
 else:
     whitelist_nombres = set(seleccionados_finales)
     G = nx.DiGraph()
@@ -204,7 +218,7 @@ else:
 
     # Renderizado
     if len(G.nodes()) == 0:
-        st.warning("No hay conexiones visibles con los filtros actuales.")
+        st.warning("Alumnos seleccionados sin conexiones visibles.")
     else:
         in_degrees = dict(G.in_degree())
         net = Network(height="750px", width="100%", bgcolor="#ffffff", font_color="black", directed=True)
