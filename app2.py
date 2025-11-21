@@ -37,7 +37,6 @@ def normalizar_nombre(nombre):
 
 def cargar_desde_carpeta(ruta_carpeta, nombre_curso):
     data_parcial = {}
-    # Verificación silenciosa: si no existe la carpeta, retorna vacío sin error visual
     if not os.path.exists(ruta_carpeta):
         return data_parcial
 
@@ -69,18 +68,41 @@ def cargar_desde_carpeta(ruta_carpeta, nombre_curso):
                     "raw_ranking": ranking
                 }
         except Exception:
-            # Ignoramos errores de lectura individuales para no ensuciar la UI
             pass
             
     return data_parcial
 
+def crear_grilla_checkbox(nombres, key_prefix, default_check=False):
+    """
+    Crea una lista de checkboxes distribuidos en 2 columnas.
+    Retorna la lista de nombres que fueron marcados.
+    """
+    seleccionados = []
+    
+    # Checkbox maestro para marcar/desmarcar todos
+    todos = st.checkbox("Seleccionar Todos", value=default_check, key=f"all_{key_prefix}")
+    
+    # Creamos 2 columnas para distribución horizontal (side-by-side)
+    col1, col2 = st.columns(2)
+    
+    for i, nombre in enumerate(nombres):
+        # Alternamos entre columna 1 y columna 2
+        columna_actual = col1 if i % 2 == 0 else col2
+        
+        with columna_actual:
+            # Usamos el estado del 'todos' como valor por defecto
+            # key única es necesaria para que Streamlit no se confunda
+            if st.checkbox(nombre, value=todos, key=f"{key_prefix}_{i}_{nombre}"):
+                seleccionados.append(nombre)
+                
+    return seleccionados
+
 # =========================
-# Lógica de Carga Automática (State)
+# Lógica de Carga Automática
 # =========================
 if 'datos_grafo' not in st.session_state:
     st.session_state['datos_grafo'] = {}
     
-    # Rutas por defecto (Hardcoded según tu estructura)
     path_c1 = os.path.join("respuestas", "curso1")
     path_c2 = os.path.join("respuestas", "curso2")
     path_c3 = os.path.join("respuestas", "curso3")
@@ -100,106 +122,74 @@ st.title("🕸️ Grafo de Sociometría")
 
 datos = st.session_state.get('datos_grafo', {})
 
-# --- Barra Lateral: Selección de Alumnos ---
+# --- Barra Lateral ---
 with st.sidebar:
     st.header("👥 Filtro de Alumnos")
-    st.write("Selecciona los estudiantes que deseas visualizar.")
+    st.caption("Marca las casillas para incluir alumnos en el grafo.")
     
-    # Listas maestras de nombres disponibles en los datos cargados
     nombres_c1 = sorted([n for n, d in datos.items() if d['curso'] == "Curso 1"])
     nombres_c2 = sorted([n for n, d in datos.items() if d['curso'] == "Curso 2"])
     nombres_c3 = sorted([n for n, d in datos.items() if d['curso'] == "Curso 3"])
 
     seleccionados_finales = []
 
-    # --- Selector Curso 1 ---
-    with st.expander(f"Curso 1 ({len(nombres_c1)} alumnos)", expanded=True):
+    # --- Curso 1 ---
+    with st.expander(f"Curso 1 ({len(nombres_c1)})", expanded=True):
         if nombres_c1:
-            # Checkbox para "Seleccionar todos" rápido
-            todos_c1 = st.checkbox("Marcar todos Curso 1", value=True)
-            
-            # El multiselect muestra las selecciones horizontalmente (como etiquetas)
-            sel_c1 = st.multiselect(
-                "Integrantes:", 
-                nombres_c1, 
-                default=nombres_c1 if todos_c1 else [],
-                key="ms_c1"
-            )
+            sel_c1 = crear_grilla_checkbox(nombres_c1, "c1", default_check=True)
             seleccionados_finales.extend(sel_c1)
         else:
-            st.caption("No se encontraron datos para Curso 1")
+            st.caption("Sin datos")
 
-    # --- Selector Curso 2 ---
-    with st.expander(f"Curso 2 ({len(nombres_c2)} alumnos)", expanded=False):
+    # --- Curso 2 ---
+    with st.expander(f"Curso 2 ({len(nombres_c2)})", expanded=False):
         if nombres_c2:
-            todos_c2 = st.checkbox("Marcar todos Curso 2", value=False)
-            sel_c2 = st.multiselect(
-                "Integrantes:", 
-                nombres_c2, 
-                default=nombres_c2 if todos_c2 else [],
-                key="ms_c2"
-            )
+            sel_c2 = crear_grilla_checkbox(nombres_c2, "c2", default_check=False)
             seleccionados_finales.extend(sel_c2)
         else:
-            st.caption("No se encontraron datos para Curso 2")
+            st.caption("Sin datos")
 
-    # --- Selector Curso 3 ---
-    with st.expander(f"Curso 3 ({len(nombres_c3)} alumnos)", expanded=False):
+    # --- Curso 3 ---
+    with st.expander(f"Curso 3 ({len(nombres_c3)})", expanded=False):
         if nombres_c3:
-            todos_c3 = st.checkbox("Marcar todos Curso 3", value=False)
-            sel_c3 = st.multiselect(
-                "Integrantes:", 
-                nombres_c3, 
-                default=nombres_c3 if todos_c3 else [],
-                key="ms_c3"
-            )
+            sel_c3 = crear_grilla_checkbox(nombres_c3, "c3", default_check=False)
             seleccionados_finales.extend(sel_c3)
         else:
-            st.caption("No se encontraron datos para Curso 3")
+            st.caption("Sin datos")
 
     st.markdown("---")
-    st.subheader("🎯 Opciones de Grafo")
-    max_ranking = st.slider("Afinidad Máxima (1-10):", 1, 10, 10, help="Muestra conexiones hasta este nivel de preferencia.")
-    physics_enabled = st.toggle("Movimiento (Física)", value=True)
+    st.subheader("🎯 Opciones")
+    max_ranking = st.slider("Afinidad Máxima (1-10):", 1, 10, 10)
+    physics_enabled = st.toggle("Física (Movimiento)", value=True)
 
-# --- Área de Visualización ---
+# --- Visualización ---
 if not datos:
-    st.error("⚠️ No se encontraron archivos JSON en las carpetas 'respuestas/cursoX'. Por favor verifica la estructura de directorios.")
+    st.error("⚠️ No se encontraron datos. Verifica las carpetas 'respuestas/cursoX'.")
 elif not seleccionados_finales:
-    st.info("👈 Selecciona al menos un alumno en la barra lateral para generar el grafo.")
+    st.info("👈 Selecciona alumnos en el menú lateral para ver el grafo.")
 else:
-    # Convertimos la lista de seleccionados a un SET para búsqueda rápida
     whitelist_nombres = set(seleccionados_finales)
-
     G = nx.DiGraph()
     
-    # 1. Nodos: Solo agregamos los que estén en la whitelist
+    # Nodos
     for nombre, info in datos.items():
         if nombre in whitelist_nombres:
             G.add_node(nombre, group=info['curso'], title=f"Curso: {info['curso']}")
 
-    # 2. Aristas: Lógica de conexión y reciprocidad
+    # Aristas
     mutuas_procesadas = set()
-
     for nombre, info in datos.items():
-        # Si el alumno origen no está seleccionado, saltamos
-        if nombre not in whitelist_nombres: 
-            continue
+        if nombre not in whitelist_nombres: continue
             
         for destino, ranking_val in info['conexiones'].items():
             if ranking_val > max_ranking: continue 
 
-            # Verificamos que el DESTINO también esté seleccionado para verse
             if destino in whitelist_nombres:
-                
-                # Recuperamos curso destino (seguro porque ya filtramos por whitelist)
                 curso_destino = datos[destino]['curso'] if destino in datos else "Desconocido"
                 
-                # Aseguramos nodo destino si no existiera (caso raro data incompleta)
                 if not G.has_node(destino):
                     G.add_node(destino, group=curso_destino, title=f"Curso: {curso_destino}")
                 
-                # Detección de reciprocidad (mutua)
                 es_mutua = False
                 datos_destino = datos.get(destino, {})
                 ranking_retorno = datos_destino.get('conexiones', {}).get(nombre)
@@ -207,66 +197,54 @@ else:
                 if ranking_retorno and ranking_retorno <= max_ranking:
                     es_mutua = True
                 
-                # Añadir arista
                 G.add_edge(nombre, destino, weight=ranking_val, mutua=es_mutua)
                 
                 if es_mutua:
-                    par_alumnos = tuple(sorted((nombre, destino)))
-                    mutuas_procesadas.add(par_alumnos)
+                    mutuas_procesadas.add(tuple(sorted((nombre, destino))))
 
-    # Renderizado PyVis
+    # Renderizado
     if len(G.nodes()) == 0:
-        st.warning("Los alumnos seleccionados no tienen conexiones entre sí bajo los criterios actuales.")
+        st.warning("No hay conexiones visibles con los filtros actuales.")
     else:
         in_degrees = dict(G.in_degree())
-        
         net = Network(height="750px", width="100%", bgcolor="#ffffff", font_color="black", directed=True)
         
-        # Estilizar Nodos
         for node in G.nodes():
             curso = G.nodes[node].get('group', 'Desconocido')
             popularidad = in_degrees.get(node, 0)
-            
             size = 15 + (popularidad * 4)
             color_fondo = COLORES_CURSO.get(curso, "#eeeeee")
             if popularidad >= 3:
                 color_fondo = COLORES_POPULAR.get(curso, color_fondo)
-                
+            
             label = node
             if popularidad > 4: label += " 👑"
+            title = f"<b>{node}</b><br>{curso}<br>Votos: {popularidad}"
             
-            title_html = f"<b>{node}</b><br>Curso: {curso}<br>Votos recibidos: {popularidad}"
-            net.add_node(node, label=label, title=title_html, color=color_fondo, size=size)
+            net.add_node(node, label=label, title=title, color=color_fondo, size=size)
 
-        # Estilizar Aristas
         for u, v, data in G.edges(data=True):
             es_mutua = data.get('mutua', False)
-            
             if es_mutua:
-                net.add_edge(u, v, color="red", width=3, arrows="to;from")
+                net.add_edge(u, v, color="red", width=3)
             else:
                 rank = data.get('weight', '?')
-                color_linea = "#cccccc"
-                # Destacar primera opción
-                if rank == 1: color_linea = "#666666"
-                
-                net.add_edge(u, v, color=color_linea, width=1, dashes=True, arrows="to")
+                color = "#666666" if rank == 1 else "#cccccc"
+                net.add_edge(u, v, color=color, width=1, dashes=True)
 
         if physics_enabled:
             net.barnes_hut(gravity=-2000, central_gravity=0.3, spring_length=120)
         else:
             net.toggle_physics(False)
 
-        # Guardar y mostrar HTML
         with tempfile.NamedTemporaryFile(delete=False, suffix=".html") as tmp:
             net.save_graph(tmp.name)
             with open(tmp.name, 'r', encoding='utf-8') as f:
                 html_bytes = f.read()
                 
-        st.components.v1.html(html_bytes, height=770, scrolling=False)
+        st.components.v1.html(html_bytes, height=770)
         
-        # Métricas inferiores
         c1, c2, c3 = st.columns(3)
-        c1.metric("Alumnos Visibles", len(G.nodes()))
-        c2.metric("Conexiones Totales", len(G.edges()))
-        c3.metric("Relaciones Mutuas (❤️)", len(mutuas_procesadas))
+        c1.metric("Alumnos", len(G.nodes()))
+        c2.metric("Conexiones", len(G.edges()))
+        c3.metric("Mutuas", len(mutuas_procesadas))
