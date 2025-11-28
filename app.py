@@ -58,109 +58,113 @@ def cargar_desde_carpeta(ruta_carpeta, nombre_curso):
 
 # --- Funciones para Guardar/Cargar Grupos ---
 def leer_grupos_guardados():
-    if not os.path.exists(FILE_GRUPOS):
-        return {}
+    if not os.path.exists(FILE_GRUPOS): return {}
     try:
-        with open(FILE_GRUPOS, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except:
-        return {}
+        with open(FILE_GRUPOS, 'r', encoding='utf-8') as f: return json.load(f)
+    except: return {}
 
 def guardar_nuevo_grupo(nombre_grupo, lista_alumnos):
     grupos = leer_grupos_guardados()
     grupos[nombre_grupo] = lista_alumnos
-    with open(FILE_GRUPOS, 'w', encoding='utf-8') as f:
-        json.dump(grupos, f, ensure_ascii=False, indent=4)
+    with open(FILE_GRUPOS, 'w', encoding='utf-8') as f: json.dump(grupos, f, ensure_ascii=False, indent=4)
 
 def eliminar_grupo(nombre_grupo):
     grupos = leer_grupos_guardados()
     if nombre_grupo in grupos:
         del grupos[nombre_grupo]
-        with open(FILE_GRUPOS, 'w', encoding='utf-8') as f:
-            json.dump(grupos, f, ensure_ascii=False, indent=4)
+        with open(FILE_GRUPOS, 'w', encoding='utf-8') as f: json.dump(grupos, f, ensure_ascii=False, indent=4)
 
-# --- Checkbox Modificado para aceptar pre-selección ---
+# --- Checkbox Modificado ---
 def crear_grilla_checkbox(nombres, key_prefix, lista_preseleccion=None):
-    """
-    lista_preseleccion: Lista de nombres que deben aparecer marcados.
-                        Si es None, se usa el comportamiento manual estándar.
-    """
     seleccionados = []
-    
-    # Determinar estado inicial del "Seleccionar Todos"
-    # Si hay una lista cargada y cubre casi todos, o si el usuario lo marca manual
-    estado_todos = False 
-    
-    # Checkbox maestro
-    todos = st.checkbox("Seleccionar Todos", value=estado_todos, key=f"all_{key_prefix}")
-    
+    todos = st.checkbox("Seleccionar Todos", value=False, key=f"all_{key_prefix}")
     col1, col2 = st.columns(2)
     for i, n in enumerate(nombres):
-        # Lógica de marcado:
-        # 1. Si "Todos" está marcado -> True
-        # 2. Si hay una lista guardada y el nombre está en ella -> True
-        # 3. Si no, False
-        is_checked = False
-        if todos:
-            is_checked = True
-        elif lista_preseleccion is not None:
-            if n in lista_preseleccion:
-                is_checked = True
-        
+        is_checked = todos or (lista_preseleccion is not None and n in lista_preseleccion)
         with (col1 if i%2==0 else col2):
-            # Usamos 'value' para forzar el estado visual
             if st.checkbox(n, value=is_checked, key=f"{key_prefix}_{i}_{n}"):
                 seleccionados.append(n)
-                
     return seleccionados
 
-def inyectar_botones_con_jspdf(html_str):
-    head_injection = """<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>"""
+# =========================
+# INYECCIÓN DE JAVASCRIPT PARA IMAGEN HD
+# =========================
+def inyectar_botones_imagen_hd(html_str):
     script_botones = """
     <script>
+    // 1. Función para Centrar (por si se pierde el grafo)
     function centrarGrafo() { if (typeof network !== 'undefined') network.fit({ animation: { duration: 1000 } }); }
-    async function descargarPDFDirecto() {
-        const { jsPDF } = window.jspdf;
+
+    // 2. Función PRINCIPAL: Descargar Imagen HD de la vista actual
+    async function descargarImagenHD() {
         var canvas = document.getElementsByTagName('canvas')[0];
         if (!canvas) return;
-        var originalWidth = canvas.width; var originalHeight = canvas.height;
-        var originalStyleWidth = canvas.style.width; var originalStyleHeight = canvas.style.height;
+
+        // Guardar estado original
+        var originalWidth = canvas.width;
+        var originalHeight = canvas.height;
+        // Guardamos el estilo CSS para que no se descuadre visualmente al usuario
+        var originalStyleWidth = canvas.style.width;
+        var originalStyleHeight = canvas.style.height;
         var ctx = canvas.getContext('2d');
-        var scaleFactor = 3; 
-        canvas.width = originalWidth * scaleFactor; canvas.height = originalHeight * scaleFactor;
-        canvas.style.width = originalStyleWidth; canvas.style.height = originalStyleHeight;
+
+        // --- FASE DE ALTA RESOLUCIÓN ---
+        var scaleFactor = 4; // Multiplicador de calidad (4x es muy bueno)
+
+        // Aumentamos el tamaño interno del canvas
+        canvas.width = originalWidth * scaleFactor;
+        canvas.height = originalHeight * scaleFactor;
+        // Mantenemos el tamaño visual externo
+        canvas.style.width = originalStyleWidth;
+        canvas.style.height = originalStyleHeight;
+
+        // Escalamos el contexto de dibujo
         ctx.scale(scaleFactor, scaleFactor);
+
+        // Redibujamos el grafo en alta resolución (manteniendo el zoom actual)
         if (typeof network !== 'undefined') network.redraw();
-        await new Promise(r => setTimeout(r, 1000));
+
+        // Esperamos un momento para asegurar el redibujado
+        await new Promise(r => setTimeout(r, 500));
+
+        // --- FASE DE DESCARGA ---
         try {
-            var imgData = canvas.toDataURL("image/jpeg", 1.0);
-            var pdfWidth = canvas.width * 0.264583 / scaleFactor;
-            var pdfHeight = canvas.height * 0.264583 / scaleFactor;
-            var orientation = (pdfWidth > pdfHeight) ? 'l' : 'p';
-            const pdf = new jsPDF({ orientation: orientation, unit: 'mm', format: [pdfWidth + 20, pdfHeight + 20] });
-            pdf.text("Sociograma", 10, 10);
-            pdf.addImage(imgData, 'JPEG', 10, 15, pdfWidth, pdfHeight);
-            pdf.save("sociograma_alta_calidad.pdf");
-        } catch (error) { alert("Error: " + error.message); }
-        canvas.width = originalWidth; canvas.height = originalHeight;
-        canvas.style.width = originalStyleWidth; canvas.style.height = originalStyleHeight;
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
+            // Creamos la imagen PNG a partir del canvas gigante
+            var imgData = canvas.toDataURL("image/png");
+            
+            // Creamos un enlace temporal para descargar
+            var link = document.createElement('a');
+            link.download = "sociograma_HD_vista_actual.png";
+            link.href = imgData;
+            link.click();
+
+        } catch (error) { alert("Error generando imagen: " + error.message); }
+
+        // --- FASE DE RESTAURACIÓN ---
+        // Devolvemos el canvas a su estado normal
+        canvas.width = originalWidth;
+        canvas.height = originalHeight;
+        canvas.style.width = originalStyleWidth;
+        canvas.style.height = originalStyleHeight;
+        ctx.setTransform(1, 0, 0, 1, 0, 0); // Resetear escala
         if (typeof network !== 'undefined') network.redraw();
     }
     </script>
+    
     <style>
     .btn-container { position: absolute; top: 10px; right: 10px; z-index: 1000; display: flex; gap: 10px; }
     .btn-action { padding: 8px 16px; border: none; border-radius: 5px; cursor: pointer; font-family: sans-serif; font-weight: bold; font-size: 14px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); color: white; }
     .btn-center { background-color: #555; } .btn-center:hover { background-color: #333; }
-    .btn-print { background-color: #27AE60; } .btn-print:hover { background-color: #219150; }
+    /* Color violeta para el botón de imagen HD */
+    .btn-img { background-color: #8E44AD; } .btn-img:hover { background-color: #732d91; }
     </style>
+    
     <div class="btn-container">
         <button onclick="centrarGrafo()" class="btn-action btn-center">🔍 Centrar</button>
-        <button onclick="descargarPDFDirecto()" class="btn-action btn-print">📥 Descargar PDF (Alta Calidad)</button>
+        <button onclick="descargarImagenHD()" class="btn-action btn-img">📸 Descargar Imagen HD (Vista Actual)</button>
     </div>
     """
-    html_with_head = html_str.replace('<head>', '<head>' + head_injection)
-    return html_with_head.replace('</body>', f'{script_botones}</body>')
+    return html_str.replace('</body>', f'{script_botones}</body>')
 
 # =========================
 # Lógica Principal
@@ -180,9 +184,7 @@ with st.sidebar:
     grupos_existentes = leer_grupos_guardados()
     nombres_grupos = ["-- Ninguno --"] + list(grupos_existentes.keys())
     
-    # Selector para cargar
     grupo_seleccionado_nombre = st.selectbox("Cargar un grupo guardado:", nombres_grupos)
-    
     lista_preseleccion = None
     if grupo_seleccionado_nombre != "-- Ninguno --":
         lista_preseleccion = set(grupos_existentes[grupo_seleccionado_nombre])
@@ -195,20 +197,11 @@ with st.sidebar:
     # --- SECCIÓN DE FILTROS ---
     st.header("👥 Selección de Estudiantes")
     seleccionados_totales = []
-    
     for c_nombre in ["Curso 1", "Curso 2", "Curso 3"]:
         nombres = sorted([n for n, d in datos.items() if d['curso'] == c_nombre])
-        # Expandimos si hay alguien de ese curso en la preselección cargada
-        expandir = False
-        if lista_preseleccion:
-            if any(n in lista_preseleccion for n in nombres):
-                expandir = True
-        elif c_nombre == "Curso 1":
-            expandir = True
-
+        expandir = lista_preseleccion and any(n in lista_preseleccion for n in nombres) or c_nombre == "Curso 1"
         with st.expander(f"{c_nombre} ({len(nombres)})", expanded=expandir):
             if nombres: 
-                # Pasamos la lista cargada (si existe) para que marque las casillas
                 sel = crear_grilla_checkbox(nombres, c_nombre.lower().replace(" ", ""), lista_preseleccion)
                 seleccionados_totales.extend(sel)
 
@@ -216,14 +209,13 @@ with st.sidebar:
     if seleccionados_totales:
         st.markdown("---")
         st.subheader("💾 Guardar Selección Actual")
-        nombre_nuevo_grupo = st.text_input("Nombre para el nuevo grupo (ej: 'Caso Juan')")
+        nombre_nuevo_grupo = st.text_input("Nombre para el nuevo grupo:")
         if st.button("Guardar Grupo"):
             if nombre_nuevo_grupo:
                 guardar_nuevo_grupo(nombre_nuevo_grupo, seleccionados_totales)
                 st.success(f"Grupo '{nombre_nuevo_grupo}' guardado.")
-                st.rerun() # Recargar para que aparezca arriba
-            else:
-                st.error("Escribe un nombre para el grupo.")
+                st.rerun()
+            else: st.error("Escribe un nombre.")
 
     st.markdown("---")
     st.subheader("⚙️ Visualización")
@@ -258,7 +250,8 @@ else:
     if len(G.nodes()) == 0:
         st.warning("Sin conexiones visibles.")
     else:
-        net = Network(height="750px", width="100%", bgcolor="white", font_color="black", directed=True)
+        # Usamos fondo transparente (None) para que el PNG sea más versátil
+        net = Network(height="750px", width="100%", bgcolor=None, font_color="black", directed=True)
         in_degrees = dict(G.in_degree())
         colores = {"Curso 1": "#FFFF00", "Curso 2": "#90EE90", "Curso 3": "#ADD8E6"}
         colores_pop = {"Curso 1": "#FFD700", "Curso 2": "#32CD32", "Curso 3": "#1E90FF"}
@@ -269,25 +262,27 @@ else:
             size = 25 + (pop * 5)
             color = colores_pop.get(c, "#ccc") if pop >= 3 else colores.get(c, "#eee")
             label = f"{n} 👑" if pop > 4 else n
-            net.add_node(n, label=label, title=f"{n}\nVotos: {pop}", color=color, size=size, font={'size': 20, 'face': 'arial', 'strokeWidth': 3, 'strokeColor': 'white'})
+            # Fuente grande y con borde para que se lea bien en el PNG
+            net.add_node(n, label=label, title=f"{n}\nVotos: {pop}", color=color, size=size, font={'size': 24, 'face': 'arial', 'strokeWidth': 4, 'strokeColor': 'white', 'color': 'black'})
 
         dibujadas = set()
         for u, v, d in G.edges(data=True):
             if d['mutua']:
                 par = tuple(sorted((u, v)))
                 if par not in dibujadas:
-                    net.add_edge(u, v, color="red", width=4, arrows={'to': {'enabled': False}})
+                    net.add_edge(u, v, color="red", width=5, arrows={'to': {'enabled': False}})
                     dibujadas.add(par)
             else:
                 color = "#666666" if d['weight'] == 1 else "#cccccc"
-                net.add_edge(u, v, color=color, width=2 if d['weight']==1 else 1, dashes=True, arrows={'to': {'enabled': True, 'type': 'vee'}})
+                net.add_edge(u, v, color=color, width=2 if d['weight']==1 else 1, dashes=True, arrows={'to': {'enabled': True, 'type': 'vee', 'scaleFactor': 1.5}})
 
         net.barnes_hut(gravity=params['grav'], central_gravity=0.1, spring_length=params['spring'], damping=0.09)
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".html") as tmp:
             net.save_graph(tmp.name)
             with open(tmp.name, 'r', encoding='utf-8') as f:
-                html = inyectar_botones_con_jspdf(f.read())
+                # Usamos la nueva función de inyección de imagen HD
+                html = inyectar_botones_imagen_hd(f.read())
             
         st.components.v1.html(html, height=800)
         c1, c2, c3 = st.columns(3)
