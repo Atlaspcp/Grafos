@@ -30,13 +30,24 @@ st.markdown(
         }
         .block-container {
             padding: 0 !important;
+            margin: 0 !important;
+            max-width: none !important;
         }
-        /* Forzar que el grafo ocupe toda la hoja */
+        /* Forzar que el grafo ocupe toda la hoja y se vea bien */
         #mynetwork, body, html {
             width: 100% !important;
             height: 100% !important;
             margin: 0 !important;
+            padding: 0 !important;
             overflow: visible !important;
+        }
+        /* Asegurar que el canvas de alta resolución se ajuste a la página */
+        canvas {
+            width: 100% !important;
+            height: auto !important;
+            max-width: none !important;
+            max-height: none !important;
+            display: block;
         }
     }
     </style>
@@ -116,24 +127,61 @@ def crear_grilla_checkbox(nombres, key_prefix, default_check=False):
                 seleccionados.append(nombre)
     return seleccionados
 
-def inyectar_boton_pdf_wysiwyg(html_str):
+def inyectar_boton_pdf_alta_calidad(html_str):
     """
-    Botón que imprime EXACTAMENTE lo que se ve en pantalla (sin hacer fit automático),
-    preservando el nivel de zoom/detalle que el usuario haya configurado manualmente.
+    Inyecta un botón que aumenta drásticamente la resolución del canvas antes de imprimir
+    para conseguir un PDF nítido (vector-like).
     """
     script_descarga = """
     <script>
-    function imprimirPDF() {
-        // Simplemente llamamos a imprimir. 
-        // El usuario debe haber hecho zoom manualmente si quiere detalle.
-        window.print(); 
-    }
-    
-    // Función opcional por si quieren re-centrar manualmente
-    function centrarGrafo() {
+    function imprimirPDFAltaCalidad() {
+        var canvas = document.getElementsByTagName('canvas')[0];
+        if (!canvas) { alert("Error: No se encuentra el grafo."); return; }
+
+        // 1. Guardar estado original
+        var originalWidth = canvas.width;
+        var originalHeight = canvas.height;
+        var originalStyleWidth = canvas.style.width;
+        var originalStyleHeight = canvas.style.height;
+        var ctx = canvas.getContext('2d');
+
+        // 2. Definir factor de escala (4x para muy alta calidad)
+        var scaleFactor = 4;
+
+        // 3. Aumentar el tamaño del buffer interno del canvas
+        canvas.width = originalWidth * scaleFactor;
+        canvas.height = originalHeight * scaleFactor;
+
+        // 4. Mantener el tamaño visual en pantalla (para que no se descuadre al usuario)
+        canvas.style.width = originalStyleWidth;
+        canvas.style.height = originalStyleHeight;
+
+        // 5. Escalar el contexto de dibujo
+        ctx.scale(scaleFactor, scaleFactor);
+
+        // 6. Redibujar el grafo en alta resolución
         if (typeof network !== 'undefined') {
-            network.fit({animation: { duration: 1000 }});
+            network.redraw();
         }
+
+        // 7. Esperar un momento para el redibujado y lanzar la impresión
+        setTimeout(function() {
+            window.print();
+
+            // 8. Restaurar el estado original después de un tiempo prudencial
+            // para evitar problemas de rendimiento.
+            setTimeout(function() {
+                canvas.width = originalWidth;
+                canvas.height = originalHeight;
+                canvas.style.width = originalStyleWidth;
+                canvas.style.height = originalStyleHeight;
+                ctx.setTransform(1, 0, 0, 1, 0, 0); // Resetear transformación
+                if (typeof network !== 'undefined') {
+                    network.redraw();
+                }
+            }, 3000); // Esperar 3 segundos tras abrir el diálogo de impresión
+
+        }, 1000); // Esperar 1 segundo para el redibujado en alta res
     }
     </script>
     
@@ -143,23 +191,21 @@ def inyectar_boton_pdf_wysiwyg(html_str):
         top: 10px;
         right: 10px;
         z-index: 1000;
-        display: flex;
-        gap: 10px;
     }
     .btn-action {
-        background-color: #008CBA;
+        background-color: #E74C3C; /* Rojo para destacar */
         color: white;
-        padding: 8px 15px;
+        padding: 10px 20px;
         border: none;
         border-radius: 4px;
         cursor: pointer;
         font-family: sans-serif;
         font-weight: bold;
-        box-shadow: 0px 2px 5px rgba(0,0,0,0.2);
+        font-size: 14px;
+        box-shadow: 0px 2px 5px rgba(0,0,0,0.3);
+        transition: background-color 0.3s;
     }
-    .btn-action:hover { background-color: #007399; }
-    .btn-secondary { background-color: #666; }
-    .btn-secondary:hover { background-color: #444; }
+    .btn-action:hover { background-color: #C0392B; }
 
     @media print {
         .btn-container { display: none !important; }
@@ -167,8 +213,7 @@ def inyectar_boton_pdf_wysiwyg(html_str):
     </style>
     
     <div class="btn-container">
-        <button onclick="centrarGrafo()" class="btn-action btn-secondary">🔍 Centrar Todo</button>
-        <button onclick="imprimirPDF()" class="btn-action">🖨️ Imprimir Vista Actual (PDF)</button>
+        <button onclick="imprimirPDFAltaCalidad()" class="btn-action">🖨️ PDF de Alta Calidad (Vista Actual)</button>
     </div>
     """
     return html_str.replace('</body>', f'{script_descarga}</body>')
@@ -274,7 +319,8 @@ else:
         for node in G.nodes():
             curso = G.nodes[node].get('group', 'Desconocido')
             popularidad = in_degrees.get(node, 0)
-            size = 20 + (popularidad * 5) # Ligeramente más grandes para ver mejor el detalle
+            # Tamaño base aumentado para mejor visibilidad
+            size = 25 + (popularidad * 5) 
             color_fondo = COLORES_CURSO.get(curso, "#eeeeee")
             if popularidad >= 3:
                 color_fondo = COLORES_POPULAR.get(curso, color_fondo)
@@ -283,9 +329,9 @@ else:
             if popularidad > 4: label += " 👑"
             title = f"<b>{node}</b><br>{curso}<br>Votos: {popularidad}"
             
-            # Configuración de fuente para que sea legible al exportar
+            # Fuente más grande y clara para el PDF
             net.add_node(node, label=label, title=title, color=color_fondo, size=size,
-                         font={'size': 16, 'face': 'arial', 'color': 'black'})
+                         font={'size': 20, 'face': 'arial', 'color': 'black', 'strokeWidth': 2, 'strokeColor': '#ffffff'})
 
         dibujados_mutuos = set()
         for u, v, data in G.edges(data=True):
@@ -294,19 +340,19 @@ else:
             if es_mutua:
                 par = tuple(sorted((u, v)))
                 if par in dibujados_mutuos: continue
-                # Mutua: Roja sin flecha
-                net.add_edge(u, v, color="red", width=3, arrows={'to': {'enabled': False}})
+                # Mutua: Roja, gruesa y sin flecha
+                net.add_edge(u, v, color="red", width=4, arrows={'to': {'enabled': False}})
                 dibujados_mutuos.add(par)
             else:
-                # Normal: Gris con flecha
+                # Normal: Gris con flecha tipo 'vee'
                 rank = data.get('weight', '?')
                 color = "#666666" if rank == 1 else "#cccccc"
-                # Usamos flecha tipo 'vee' que es más limpia
-                net.add_edge(u, v, color=color, width=1, dashes=True, arrows={'to': {'enabled': True, 'type': 'vee'}})
+                width = 2 if rank == 1 else 1
+                net.add_edge(u, v, color=color, width=width, dashes=True, arrows={'to': {'enabled': True, 'type': 'vee', 'scaleFactor': 1.2}})
 
         if physics_enabled:
-            # Aumentamos spring_length para dar más "aire" y detalle al grafo
-            net.barnes_hut(gravity=-2000, central_gravity=0.3, spring_length=200, damping=0.09)
+            # Físicas ajustadas para un grafo más espaciado y limpio
+            net.barnes_hut(gravity=-3000, central_gravity=0.1, spring_length=250, spring_strength=0.05, damping=0.09)
         else:
             net.toggle_physics(False)
 
@@ -314,7 +360,8 @@ else:
             net.save_graph(tmp.name)
             with open(tmp.name, 'r', encoding='utf-8') as f:
                 html_bytes = f.read()
-            html_final = inyectar_boton_pdf_wysiwyg(html_bytes)
+            # Usamos la nueva función de inyección para alta calidad
+            html_final = inyectar_boton_pdf_alta_calidad(html_bytes)
             
         st.components.v1.html(html_final, height=770)
         
