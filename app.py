@@ -11,7 +11,6 @@ import re
 # =========================
 st.set_page_config(page_title="Sociometría Interactiva", layout="wide")
 
-# Inyectamos CSS para ensanchar la barra lateral
 st.markdown(
     """
     <style>
@@ -87,53 +86,58 @@ def cargar_desde_carpeta(ruta_carpeta, nombre_curso):
     return data_parcial
 
 def crear_grilla_checkbox(nombres, key_prefix, default_check=False):
-    """
-    Crea una lista de checkboxes en 2 columnas.
-    default_check controla si empiezan marcados o no.
-    """
     seleccionados = []
-    
-    # Checkbox maestro
     todos = st.checkbox("Seleccionar Todos", value=default_check, key=f"all_{key_prefix}")
-    
-    # Creamos 2 columnas para distribución horizontal
     col1, col2 = st.columns(2)
-    
     for i, nombre in enumerate(nombres):
         columna_actual = col1 if i % 2 == 0 else col2
         with columna_actual:
             if st.checkbox(nombre, value=todos, key=f"{key_prefix}_{i}_{nombre}"):
                 seleccionados.append(nombre)
-                
     return seleccionados
 
 def inyectar_boton_descarga(html_str):
     """
-    Inyecta Javascript para capturar el Canvas y descargar como PNG.
+    Inyecta Javascript modificado para ENCUADRAR (Fit) antes de descargar.
     """
     script_descarga = """
     <script>
     function descargarImagen() {
-        var canvas = document.getElementsByTagName('canvas')[0];
-        var context = canvas.getContext('2d');
-        var w = canvas.width;
-        var h = canvas.height;
-        
-        // Guardar estado actual
-        var compositeOperation = context.globalCompositeOperation;
-        
-        // Dibujar fondo blanco detrás del grafo (para que no salga transparente)
-        context.globalCompositeOperation = "destination-over";
-        context.fillStyle = "#ffffff";
-        context.fillRect(0,0,w,h);
+        // 1. Intentar encuadrar el grafo automáticamente usando la API de Vis.js
+        // 'network' es la variable global que crea Pyvis por defecto.
+        try {
+            if (typeof network !== 'undefined') {
+                network.fit({
+                    animation: { duration: 500 } // Animación rápida para ajustar
+                });
+            }
+        } catch (e) {
+            console.log("No se pudo acceder a la instancia de red para hacer fit.");
+        }
 
-        var link = document.createElement('a');
-        link.download = 'sociograma.png';
-        link.href = canvas.toDataURL("image/png");
-        link.click();
-        
-        // Restaurar estado
-        context.globalCompositeOperation = compositeOperation;
+        // 2. Esperar a que termine la animación/renderizado (1000ms) antes de tomar la foto
+        setTimeout(function() {
+            var canvas = document.getElementsByTagName('canvas')[0];
+            var context = canvas.getContext('2d');
+            var w = canvas.width;
+            var h = canvas.height;
+            
+            // Guardar estado actual
+            var compositeOperation = context.globalCompositeOperation;
+            
+            // Dibujar fondo blanco detrás (para evitar transparencia)
+            context.globalCompositeOperation = "destination-over";
+            context.fillStyle = "#ffffff";
+            context.fillRect(0,0,w,h);
+
+            var link = document.createElement('a');
+            link.download = 'sociograma_completo.png';
+            link.href = canvas.toDataURL("image/png");
+            link.click();
+            
+            // Restaurar estado
+            context.globalCompositeOperation = compositeOperation;
+        }, 1000); // Esperamos 1 segundo para asegurar que el 'fit' terminó
     }
     </script>
     <style>
@@ -156,7 +160,7 @@ def inyectar_boton_descarga(html_str):
         background-color: #45a049;
     }
     </style>
-    <button onclick="descargarImagen()" class="btn-download">📸 Descargar Imagen</button>
+    <button onclick="descargarImagen()" class="btn-download">📸 Encuadrar y Descargar</button>
     """
     return html_str.replace('</body>', f'{script_descarga}</body>')
 
@@ -239,8 +243,8 @@ else:
         if nombre in whitelist_nombres:
             G.add_node(nombre, group=info['curso'], title=f"Curso: {info['curso']}")
 
-    # Aristas (Construcción Lógica)
-    mutuas_para_metricas = set() # Solo para el contador de abajo
+    # Aristas
+    mutuas_para_metricas = set() 
 
     for nombre, info in datos.items():
         if nombre not in whitelist_nombres: continue
@@ -271,7 +275,6 @@ else:
         in_degrees = dict(G.in_degree())
         net = Network(height="750px", width="100%", bgcolor="#ffffff", font_color="black", directed=True)
         
-        # Agregar Nodos a Pyvis
         for node in G.nodes():
             curso = G.nodes[node].get('group', 'Desconocido')
             popularidad = in_degrees.get(node, 0)
@@ -286,51 +289,34 @@ else:
             
             net.add_node(node, label=label, title=title, color=color_fondo, size=size)
 
-        # ---------------------------------------------------------------------
-        # CAMBIO 1: Agregar Aristas controlando visualización de Mutuas
-        # ---------------------------------------------------------------------
         dibujados_mutuos = set()
-
         for u, v, data in G.edges(data=True):
             es_mutua = data.get('mutua', False)
-
             if es_mutua:
-                # Ordenamos la tupla para verificar si ya dibujamos este par (A-B o B-A)
                 par = tuple(sorted((u, v)))
-                
-                if par in dibujados_mutuos:
-                    continue # Si ya la dibujamos, saltamos para no duplicar
-
-                # Dibujamos UNA sola línea ROJA sin flechas ('enabled': False)
+                if par in dibujados_mutuos: continue
+                # Mutua: Línea Roja sin flecha
                 net.add_edge(u, v, color="red", width=3, arrows={'to': {'enabled': False}})
                 dibujados_mutuos.add(par)
-            
             else:
-                # Dibujo normal estándar con flecha
+                # Normal: Flecha estándar
                 rank = data.get('weight', '?')
                 color = "#666666" if rank == 1 else "#cccccc"
                 net.add_edge(u, v, color=color, width=1, dashes=True, arrows='to')
 
-        # Física
         if physics_enabled:
             net.barnes_hut(gravity=-2000, central_gravity=0.3, spring_length=120)
         else:
             net.toggle_physics(False)
 
-        # ---------------------------------------------------------------------
-        # CAMBIO 2: Guardar HTML e inyectar el botón
-        # ---------------------------------------------------------------------
         with tempfile.NamedTemporaryFile(delete=False, suffix=".html") as tmp:
             net.save_graph(tmp.name)
             with open(tmp.name, 'r', encoding='utf-8') as f:
                 html_bytes = f.read()
-                
-            # Llamamos a la función inyectora
             html_final = inyectar_boton_descarga(html_bytes)
             
         st.components.v1.html(html_final, height=770)
         
-        # Métricas
         c1, c2, c3 = st.columns(3)
         c1.metric("Alumnos Visibles", len(G.nodes()))
         c2.metric("Conexiones Totales", len(G.edges()))
