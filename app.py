@@ -87,67 +87,51 @@ def crear_grilla_checkbox(nombres, key_prefix, lista_preseleccion=None):
     return seleccionados
 
 # =========================
-# INYECCIÓN DE JAVASCRIPT PARA IMAGEN HD
+# INYECCIÓN DE JAVASCRIPT PARA IMAGEN HD (MÉTODO ESTABLE)
 # =========================
-def inyectar_botones_imagen_hd(html_str):
+def inyectar_botones_imagen_hd_estable(html_str):
     script_botones = """
     <script>
-    // 1. Función para Centrar (por si se pierde el grafo)
+    // 1. Función para Centrar
     function centrarGrafo() { if (typeof network !== 'undefined') network.fit({ animation: { duration: 1000 } }); }
 
-    // 2. Función PRINCIPAL: Descargar Imagen HD de la vista actual
-    async function descargarImagenHD() {
-        var canvas = document.getElementsByTagName('canvas')[0];
-        if (!canvas) return;
+    // 2. Función PRINCIPAL: Descargar Imagen HD usando un lienzo secundario
+    function descargarImagenHD() {
+        // Obtenemos el canvas original que el usuario está viendo
+        var originalCanvas = document.getElementsByTagName('canvas')[0];
+        if (!originalCanvas) { alert("No se encontró el grafo."); return; }
 
-        // Guardar estado original
-        var originalWidth = canvas.width;
-        var originalHeight = canvas.height;
-        // Guardamos el estilo CSS para que no se descuadre visualmente al usuario
-        var originalStyleWidth = canvas.style.width;
-        var originalStyleHeight = canvas.style.height;
-        var ctx = canvas.getContext('2d');
+        // Factor de escala (4x para muy alta definición)
+        var scaleFactor = 4;
 
-        // --- FASE DE ALTA RESOLUCIÓN ---
-        var scaleFactor = 4; // Multiplicador de calidad (4x es muy bueno)
+        // --- CREAMOS UN LIENZO FANTASMA (INVISIBLE) ---
+        var hiddenCanvas = document.createElement('canvas');
+        hiddenCanvas.width = originalCanvas.width * scaleFactor;
+        hiddenCanvas.height = originalCanvas.height * scaleFactor;
+        var hiddenCtx = hiddenCanvas.getContext('2d');
 
-        // Aumentamos el tamaño interno del canvas
-        canvas.width = originalWidth * scaleFactor;
-        canvas.height = originalHeight * scaleFactor;
-        // Mantenemos el tamaño visual externo
-        canvas.style.width = originalStyleWidth;
-        canvas.style.height = originalStyleHeight;
+        // Opcional: Rellenar el fondo de blanco si no queremos transparencia
+        hiddenCtx.fillStyle = '#ffffff';
+        hiddenCtx.fillRect(0, 0, hiddenCanvas.width, hiddenCanvas.height);
 
-        // Escalamos el contexto de dibujo
-        ctx.scale(scaleFactor, scaleFactor);
+        // --- COPIAMOS Y ESCALAMOS ---
+        // Dibujamos el contenido del canvas original en el canvas gigante.
+        // El navegador se encarga de escalar la imagen actual.
+        hiddenCtx.drawImage(originalCanvas, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
 
-        // Redibujamos el grafo en alta resolución (manteniendo el zoom actual)
-        if (typeof network !== 'undefined') network.redraw();
-
-        // Esperamos un momento para asegurar el redibujado
-        await new Promise(r => setTimeout(r, 500));
-
-        // --- FASE DE DESCARGA ---
+        // --- DESCARGAMOS ---
         try {
-            // Creamos la imagen PNG a partir del canvas gigante
-            var imgData = canvas.toDataURL("image/png");
+            // Creamos la imagen PNG a partir del lienzo fantasma
+            var imgData = hiddenCanvas.toDataURL("image/png");
             
-            // Creamos un enlace temporal para descargar
             var link = document.createElement('a');
             link.download = "sociograma_HD_vista_actual.png";
             link.href = imgData;
+            document.body.appendChild(link); // Necesario en algunos navegadores
             link.click();
+            document.body.removeChild(link);
 
         } catch (error) { alert("Error generando imagen: " + error.message); }
-
-        // --- FASE DE RESTAURACIÓN ---
-        // Devolvemos el canvas a su estado normal
-        canvas.width = originalWidth;
-        canvas.height = originalHeight;
-        canvas.style.width = originalStyleWidth;
-        canvas.style.height = originalStyleHeight;
-        ctx.setTransform(1, 0, 0, 1, 0, 0); // Resetear escala
-        if (typeof network !== 'undefined') network.redraw();
     }
     </script>
     
@@ -155,7 +139,7 @@ def inyectar_botones_imagen_hd(html_str):
     .btn-container { position: absolute; top: 10px; right: 10px; z-index: 1000; display: flex; gap: 10px; }
     .btn-action { padding: 8px 16px; border: none; border-radius: 5px; cursor: pointer; font-family: sans-serif; font-weight: bold; font-size: 14px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); color: white; }
     .btn-center { background-color: #555; } .btn-center:hover { background-color: #333; }
-    /* Color violeta para el botón de imagen HD */
+    /* Color violeta intenso para el botón de imagen HD */
     .btn-img { background-color: #8E44AD; } .btn-img:hover { background-color: #732d91; }
     </style>
     
@@ -250,8 +234,8 @@ else:
     if len(G.nodes()) == 0:
         st.warning("Sin conexiones visibles.")
     else:
-        # Usamos fondo transparente (None) para que el PNG sea más versátil
-        net = Network(height="750px", width="100%", bgcolor=None, font_color="black", directed=True)
+        # Fondo blanco explícito para evitar problemas con visualizadores de imágenes
+        net = Network(height="750px", width="100%", bgcolor="white", font_color="black", directed=True)
         in_degrees = dict(G.in_degree())
         colores = {"Curso 1": "#FFFF00", "Curso 2": "#90EE90", "Curso 3": "#ADD8E6"}
         colores_pop = {"Curso 1": "#FFD700", "Curso 2": "#32CD32", "Curso 3": "#1E90FF"}
@@ -262,7 +246,6 @@ else:
             size = 25 + (pop * 5)
             color = colores_pop.get(c, "#ccc") if pop >= 3 else colores.get(c, "#eee")
             label = f"{n} 👑" if pop > 4 else n
-            # Fuente grande y con borde para que se lea bien en el PNG
             net.add_node(n, label=label, title=f"{n}\nVotos: {pop}", color=color, size=size, font={'size': 24, 'face': 'arial', 'strokeWidth': 4, 'strokeColor': 'white', 'color': 'black'})
 
         dibujadas = set()
@@ -281,8 +264,8 @@ else:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".html") as tmp:
             net.save_graph(tmp.name)
             with open(tmp.name, 'r', encoding='utf-8') as f:
-                # Usamos la nueva función de inyección de imagen HD
-                html = inyectar_botones_imagen_hd(f.read())
+                # Usamos la nueva función JavaScript estable
+                html = inyectar_botones_imagen_hd_estable(f.read())
             
         st.components.v1.html(html, height=800)
         c1, c2, c3 = st.columns(3)
