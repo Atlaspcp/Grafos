@@ -27,7 +27,7 @@ st.markdown(
         header, 
         footer, 
         .stApp > header,
-        .vis-configuration-wrapper, /* <--- Oculta la barra de física en el PDF */
+        .vis-configuration-wrapper, 
         .btn-container {
             display: none !important;
         }
@@ -47,12 +47,11 @@ st.markdown(
             overflow: visible !important;
         }
         
+        /* Asegurar que el canvas se comporte bien al imprimir */
         canvas {
+            display: block;
             width: 100% !important;
             height: auto !important;
-            max-width: none !important;
-            max-height: none !important;
-            display: block;
         }
     }
     </style>
@@ -132,9 +131,9 @@ def crear_grilla_checkbox(nombres, key_prefix, default_check=False):
                 seleccionados.append(nombre)
     return seleccionados
 
-def inyectar_boton_pdf_alta_calidad(html_str):
+def inyectar_boton_pdf_alta_calidad_centrado(html_str):
     """
-    Inyecta botón para PDF de alta calidad y CSS extra para la UI de configuración.
+    Inyecta Javascript que aumenta la resolución Y CENTRA el grafo antes de imprimir.
     """
     script_descarga = """
     <script>
@@ -142,25 +141,38 @@ def inyectar_boton_pdf_alta_calidad(html_str):
         var canvas = document.getElementsByTagName('canvas')[0];
         if (!canvas) { alert("Error: No se encuentra el grafo."); return; }
 
+        // 1. Guardar estado original
         var originalWidth = canvas.width;
         var originalHeight = canvas.height;
         var originalStyleWidth = canvas.style.width;
         var originalStyleHeight = canvas.style.height;
         var ctx = canvas.getContext('2d');
+        
+        // Factor de escala (4x)
         var scaleFactor = 4;
 
+        // 2. Aumentar resolución interna
         canvas.width = originalWidth * scaleFactor;
         canvas.height = originalHeight * scaleFactor;
+        // Mantener tamaño visual
         canvas.style.width = originalStyleWidth;
         canvas.style.height = originalStyleHeight;
+        
         ctx.scale(scaleFactor, scaleFactor);
 
+        // 3. CRUCIAL: Forzar el centrado (Fit) en el nuevo lienzo de alta resolución
         if (typeof network !== 'undefined') {
+            network.fit({
+                animation: { duration: 0 } // Centrado instantáneo
+            });
             network.redraw();
         }
 
+        // 4. Esperar un poco más para asegurar el re-renderizado y lanzar impresión
         setTimeout(function() {
             window.print();
+
+            // 5. Restaurar estado original
             setTimeout(function() {
                 canvas.width = originalWidth;
                 canvas.height = originalHeight;
@@ -168,10 +180,11 @@ def inyectar_boton_pdf_alta_calidad(html_str):
                 canvas.style.height = originalStyleHeight;
                 ctx.setTransform(1, 0, 0, 1, 0, 0); 
                 if (typeof network !== 'undefined') {
-                    network.redraw();
+                    network.fit({ animation: { duration: 500 } }); // Volver a centrar suavemente
                 }
             }, 3000);
-        }, 1000); 
+
+        }, 1500); // Aumentado a 1.5s para asegurar calidad
     }
     </script>
     
@@ -199,7 +212,7 @@ def inyectar_boton_pdf_alta_calidad(html_str):
     </style>
     
     <div class="btn-container">
-        <button onclick="imprimirPDFAltaCalidad()" class="btn-action">🖨️ PDF de Alta Calidad (Vista Actual)</button>
+        <button onclick="imprimirPDFAltaCalidad()" class="btn-action">🖨️ PDF Alta Calidad (Centrado)</button>
     </div>
     """
     return html_str.replace('</body>', f'{script_descarga}</body>')
@@ -333,9 +346,8 @@ else:
                 net.add_edge(u, v, color=color, width=width, dashes=True, arrows={'to': {'enabled': True, 'type': 'vee', 'scaleFactor': 1.2}})
 
         if physics_enabled:
-            # Configuración inicial de física
             net.barnes_hut(gravity=-3000, central_gravity=0.1, spring_length=250, spring_strength=0.05, damping=0.09)
-            # ESTO ACTIVA LA BARRA DE AJUSTE DEBAJO DEL GRAFO
+            # ACTIVA LA BARRA DE AJUSTE
             net.show_buttons(filter_=['physics'])
         else:
             net.toggle_physics(False)
@@ -344,9 +356,11 @@ else:
             net.save_graph(tmp.name)
             with open(tmp.name, 'r', encoding='utf-8') as f:
                 html_bytes = f.read()
-            html_final = inyectar_boton_pdf_alta_calidad(html_bytes)
+            # Usamos la función corregida que centra
+            html_final = inyectar_boton_pdf_alta_calidad_centrado(html_bytes)
             
-        st.components.v1.html(html_final, height=900) # Aumenté altura para que quepa la barra
+        # Aumentamos altura para que quepa el grafo y la barra de controles
+        st.components.v1.html(html_final, height=950) 
         
         c1, c2, c3 = st.columns(3)
         c1.metric("Alumnos Visibles", len(G.nodes()))
