@@ -11,7 +11,7 @@ import re
 # =========================
 st.set_page_config(page_title="Sociometría Interactiva", layout="wide")
 
-# Inyectamos CSS para ensanchar la barra lateral
+# CSS para barra lateral y Ocultar elementos al imprimir
 st.markdown(
     """
     <style>
@@ -19,6 +19,25 @@ st.markdown(
         min_width: 450px;
         max_width: 600px;
         width: 500px;
+    }
+    /* Al imprimir, ocultamos todo lo que no sea el grafo */
+    @media print {
+        [data-testid="stSidebar"], 
+        header, 
+        footer, 
+        .stApp > header {
+            display: none !important;
+        }
+        .block-container {
+            padding: 0 !important;
+        }
+        /* Forzar que el grafo ocupe toda la hoja */
+        #mynetwork, body, html {
+            width: 100% !important;
+            height: 100% !important;
+            margin: 0 !important;
+            overflow: visible !important;
+        }
     }
     </style>
     """,
@@ -87,82 +106,70 @@ def cargar_desde_carpeta(ruta_carpeta, nombre_curso):
     return data_parcial
 
 def crear_grilla_checkbox(nombres, key_prefix, default_check=False):
-    """
-    Crea una lista de checkboxes en 2 columnas.
-    """
     seleccionados = []
-    
-    # Checkbox maestro
     todos = st.checkbox("Seleccionar Todos", value=default_check, key=f"all_{key_prefix}")
-    
-    # Creamos 2 columnas para distribución horizontal
     col1, col2 = st.columns(2)
-    
     for i, nombre in enumerate(nombres):
         columna_actual = col1 if i % 2 == 0 else col2
         with columna_actual:
             if st.checkbox(nombre, value=todos, key=f"{key_prefix}_{i}_{nombre}"):
                 seleccionados.append(nombre)
-                
     return seleccionados
 
-def inyectar_boton_pdf(html_str):
+def inyectar_boton_pdf_wysiwyg(html_str):
     """
-    Inyecta Javascript para ENCUADRAR y abrir el diálogo de IMPRESIÓN (PDF).
+    Botón que imprime EXACTAMENTE lo que se ve en pantalla (sin hacer fit automático),
+    preservando el nivel de zoom/detalle que el usuario haya configurado manualmente.
     """
     script_descarga = """
     <script>
     function imprimirPDF() {
-        // 1. Encuadrar el grafo (Fit) para asegurar que todo salga en la hoja
-        try {
-            if (typeof network !== 'undefined') {
-                network.fit({
-                    animation: { duration: 0 } // Sin animación para que sea instantáneo
-                });
-            }
-        } catch (e) {
-            console.log("Error al ajustar grafo: " + e);
+        // Simplemente llamamos a imprimir. 
+        // El usuario debe haber hecho zoom manualmente si quiere detalle.
+        window.print(); 
+    }
+    
+    // Función opcional por si quieren re-centrar manualmente
+    function centrarGrafo() {
+        if (typeof network !== 'undefined') {
+            network.fit({animation: { duration: 1000 }});
         }
-
-        // 2. Esperar un momento breve para asegurar el renderizado y lanzar imprimir
-        setTimeout(function() {
-            window.print(); 
-        }, 500);
     }
     </script>
     
     <style>
-    /* Estilos normales del botón */
-    .btn-print {
+    .btn-container {
         position: absolute;
         top: 10px;
         right: 10px;
         z-index: 1000;
+        display: flex;
+        gap: 10px;
+    }
+    .btn-action {
         background-color: #008CBA;
         color: white;
-        padding: 10px 20px;
+        padding: 8px 15px;
         border: none;
-        border-radius: 5px;
+        border-radius: 4px;
         cursor: pointer;
         font-family: sans-serif;
         font-weight: bold;
         box-shadow: 0px 2px 5px rgba(0,0,0,0.2);
     }
-    .btn-print:hover {
-        background-color: #007399;
-    }
+    .btn-action:hover { background-color: #007399; }
+    .btn-secondary { background-color: #666; }
+    .btn-secondary:hover { background-color: #444; }
 
-    /* ESTILOS ESPECÍFICOS PARA CUANDO SE IMPRIME (PDF) */
     @media print {
-        /* Ocultar el botón en el PDF */
-        .btn-print { 
-            display: none !important; 
-        }
-        /* Ocultar elementos extra si fuera necesario, aunque el iframe aísla bastante */
+        .btn-container { display: none !important; }
     }
     </style>
     
-    <button onclick="imprimirPDF()" class="btn-print">🖨️ Guardar como PDF</button>
+    <div class="btn-container">
+        <button onclick="centrarGrafo()" class="btn-action btn-secondary">🔍 Centrar Todo</button>
+        <button onclick="imprimirPDF()" class="btn-action">🖨️ Imprimir Vista Actual (PDF)</button>
+    </div>
     """
     return html_str.replace('</body>', f'{script_descarga}</body>')
 
@@ -194,7 +201,6 @@ datos = st.session_state.get('datos_grafo', {})
 # --- Barra Lateral ---
 with st.sidebar:
     st.header("👥 Filtro de Alumnos")
-    st.caption("Marca las casillas para incluir alumnos en el grafo.")
     
     nombres_c1 = sorted([n for n, d in datos.items() if d['curso'] == "Curso 1"])
     nombres_c2 = sorted([n for n, d in datos.items() if d['curso'] == "Curso 2"])
@@ -202,29 +208,20 @@ with st.sidebar:
 
     seleccionados_finales = []
 
-    # --- Curso 1 ---
     with st.expander(f"Curso 1 ({len(nombres_c1)})", expanded=True):
         if nombres_c1:
             sel_c1 = crear_grilla_checkbox(nombres_c1, "c1", default_check=False)
             seleccionados_finales.extend(sel_c1)
-        else:
-            st.caption("Sin datos")
 
-    # --- Curso 2 ---
     with st.expander(f"Curso 2 ({len(nombres_c2)})", expanded=False):
         if nombres_c2:
             sel_c2 = crear_grilla_checkbox(nombres_c2, "c2", default_check=False)
             seleccionados_finales.extend(sel_c2)
-        else:
-            st.caption("Sin datos")
 
-    # --- Curso 3 ---
     with st.expander(f"Curso 3 ({len(nombres_c3)})", expanded=False):
         if nombres_c3:
             sel_c3 = crear_grilla_checkbox(nombres_c3, "c3", default_check=False)
             seleccionados_finales.extend(sel_c3)
-        else:
-            st.caption("Sin datos")
 
     st.markdown("---")
     st.subheader("🎯 Opciones")
@@ -235,17 +232,15 @@ with st.sidebar:
 if not datos:
     st.error("⚠️ No se encontraron datos. Verifica las carpetas 'respuestas/cursoX'.")
 elif not seleccionados_finales:
-    st.info("👈 **Grafo vacío.** Por favor selecciona alumnos en la barra lateral izquierda para comenzar el análisis.")
+    st.info("👈 **Grafo vacío.** Selecciona alumnos en la izquierda.")
 else:
     whitelist_nombres = set(seleccionados_finales)
     G = nx.DiGraph()
     
-    # 1. Construcción de Nodos
     for nombre, info in datos.items():
         if nombre in whitelist_nombres:
             G.add_node(nombre, group=info['curso'], title=f"Curso: {info['curso']}")
 
-    # 2. Construcción Lógica de Aristas
     mutuas_para_metricas = set() 
 
     for nombre, info in datos.items():
@@ -270,18 +265,16 @@ else:
                 
                 G.add_edge(nombre, destino, weight=ranking_val, mutua=es_mutua)
 
-    # 3. Renderizado Pyvis
     if len(G.nodes()) == 0:
         st.warning("Alumnos seleccionados sin conexiones visibles.")
     else:
         in_degrees = dict(G.in_degree())
         net = Network(height="750px", width="100%", bgcolor="#ffffff", font_color="black", directed=True)
         
-        # A) Agregar Nodos
         for node in G.nodes():
             curso = G.nodes[node].get('group', 'Desconocido')
             popularidad = in_degrees.get(node, 0)
-            size = 15 + (popularidad * 4)
+            size = 20 + (popularidad * 5) # Ligeramente más grandes para ver mejor el detalle
             color_fondo = COLORES_CURSO.get(curso, "#eeeeee")
             if popularidad >= 3:
                 color_fondo = COLORES_POPULAR.get(curso, color_fondo)
@@ -290,47 +283,41 @@ else:
             if popularidad > 4: label += " 👑"
             title = f"<b>{node}</b><br>{curso}<br>Votos: {popularidad}"
             
-            net.add_node(node, label=label, title=title, color=color_fondo, size=size)
+            # Configuración de fuente para que sea legible al exportar
+            net.add_node(node, label=label, title=title, color=color_fondo, size=size,
+                         font={'size': 16, 'face': 'arial', 'color': 'black'})
 
-        # B) Agregar Aristas (Visualización Mutua sin flechas)
         dibujados_mutuos = set()
-
         for u, v, data in G.edges(data=True):
             es_mutua = data.get('mutua', False)
 
             if es_mutua:
                 par = tuple(sorted((u, v)))
-                if par in dibujados_mutuos:
-                    continue # Ya se dibujó la línea compartida
-                
-                # Mutua: Roja, gruesa y SIN FLECHAS
+                if par in dibujados_mutuos: continue
+                # Mutua: Roja sin flecha
                 net.add_edge(u, v, color="red", width=3, arrows={'to': {'enabled': False}})
                 dibujados_mutuos.add(par)
-            
             else:
-                # Normal: Gris, punteada y CON FLECHA
+                # Normal: Gris con flecha
                 rank = data.get('weight', '?')
                 color = "#666666" if rank == 1 else "#cccccc"
-                net.add_edge(u, v, color=color, width=1, dashes=True, arrows='to')
+                # Usamos flecha tipo 'vee' que es más limpia
+                net.add_edge(u, v, color=color, width=1, dashes=True, arrows={'to': {'enabled': True, 'type': 'vee'}})
 
-        # C) Física
         if physics_enabled:
-            net.barnes_hut(gravity=-2000, central_gravity=0.3, spring_length=120)
+            # Aumentamos spring_length para dar más "aire" y detalle al grafo
+            net.barnes_hut(gravity=-2000, central_gravity=0.3, spring_length=200, damping=0.09)
         else:
             net.toggle_physics(False)
 
-        # D) Generar HTML e inyectar botón PDF
         with tempfile.NamedTemporaryFile(delete=False, suffix=".html") as tmp:
             net.save_graph(tmp.name)
             with open(tmp.name, 'r', encoding='utf-8') as f:
                 html_bytes = f.read()
-                
-            # Llamamos a la función que inyecta JS para PDF
-            html_final = inyectar_boton_pdf(html_bytes)
+            html_final = inyectar_boton_pdf_wysiwyg(html_bytes)
             
         st.components.v1.html(html_final, height=770)
         
-        # E) Métricas
         c1, c2, c3 = st.columns(3)
         c1.metric("Alumnos Visibles", len(G.nodes()))
         c2.metric("Conexiones Totales", len(G.edges()))
