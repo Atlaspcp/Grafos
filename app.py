@@ -20,20 +20,25 @@ st.markdown(
         max_width: 600px;
         width: 500px;
     }
-    /* Al imprimir, ocultamos todo lo que no sea el grafo */
+    /* ESTILOS DE IMPRESIÓN (PDF) */
     @media print {
+        /* Ocultar barra lateral, cabeceras y el PANEL DE CONFIGURACIÓN de física */
         [data-testid="stSidebar"], 
         header, 
         footer, 
-        .stApp > header {
+        .stApp > header,
+        .vis-configuration-wrapper, /* <--- Oculta la barra de física en el PDF */
+        .btn-container {
             display: none !important;
         }
+        
         .block-container {
             padding: 0 !important;
             margin: 0 !important;
             max-width: none !important;
         }
-        /* Forzar que el grafo ocupe toda la hoja y se vea bien */
+        
+        /* Forzar que el grafo ocupe toda la hoja */
         #mynetwork, body, html {
             width: 100% !important;
             height: 100% !important;
@@ -41,7 +46,7 @@ st.markdown(
             padding: 0 !important;
             overflow: visible !important;
         }
-        /* Asegurar que el canvas de alta resolución se ajuste a la página */
+        
         canvas {
             width: 100% !important;
             height: auto !important;
@@ -129,8 +134,7 @@ def crear_grilla_checkbox(nombres, key_prefix, default_check=False):
 
 def inyectar_boton_pdf_alta_calidad(html_str):
     """
-    Inyecta un botón que aumenta drásticamente la resolución del canvas antes de imprimir
-    para conseguir un PDF nítido (vector-like).
+    Inyecta botón para PDF de alta calidad y CSS extra para la UI de configuración.
     """
     script_descarga = """
     <script>
@@ -138,50 +142,36 @@ def inyectar_boton_pdf_alta_calidad(html_str):
         var canvas = document.getElementsByTagName('canvas')[0];
         if (!canvas) { alert("Error: No se encuentra el grafo."); return; }
 
-        // 1. Guardar estado original
         var originalWidth = canvas.width;
         var originalHeight = canvas.height;
         var originalStyleWidth = canvas.style.width;
         var originalStyleHeight = canvas.style.height;
         var ctx = canvas.getContext('2d');
-
-        // 2. Definir factor de escala (4x para muy alta calidad)
         var scaleFactor = 4;
 
-        // 3. Aumentar el tamaño del buffer interno del canvas
         canvas.width = originalWidth * scaleFactor;
         canvas.height = originalHeight * scaleFactor;
-
-        // 4. Mantener el tamaño visual en pantalla (para que no se descuadre al usuario)
         canvas.style.width = originalStyleWidth;
         canvas.style.height = originalStyleHeight;
-
-        // 5. Escalar el contexto de dibujo
         ctx.scale(scaleFactor, scaleFactor);
 
-        // 6. Redibujar el grafo en alta resolución
         if (typeof network !== 'undefined') {
             network.redraw();
         }
 
-        // 7. Esperar un momento para el redibujado y lanzar la impresión
         setTimeout(function() {
             window.print();
-
-            // 8. Restaurar el estado original después de un tiempo prudencial
-            // para evitar problemas de rendimiento.
             setTimeout(function() {
                 canvas.width = originalWidth;
                 canvas.height = originalHeight;
                 canvas.style.width = originalStyleWidth;
                 canvas.style.height = originalStyleHeight;
-                ctx.setTransform(1, 0, 0, 1, 0, 0); // Resetear transformación
+                ctx.setTransform(1, 0, 0, 1, 0, 0); 
                 if (typeof network !== 'undefined') {
                     network.redraw();
                 }
-            }, 3000); // Esperar 3 segundos tras abrir el diálogo de impresión
-
-        }, 1000); // Esperar 1 segundo para el redibujado en alta res
+            }, 3000);
+        }, 1000); 
     }
     </script>
     
@@ -193,7 +183,7 @@ def inyectar_boton_pdf_alta_calidad(html_str):
         z-index: 1000;
     }
     .btn-action {
-        background-color: #E74C3C; /* Rojo para destacar */
+        background-color: #E74C3C; 
         color: white;
         padding: 10px 20px;
         border: none;
@@ -206,10 +196,6 @@ def inyectar_boton_pdf_alta_calidad(html_str):
         transition: background-color 0.3s;
     }
     .btn-action:hover { background-color: #C0392B; }
-
-    @media print {
-        .btn-container { display: none !important; }
-    }
     </style>
     
     <div class="btn-container">
@@ -319,7 +305,6 @@ else:
         for node in G.nodes():
             curso = G.nodes[node].get('group', 'Desconocido')
             popularidad = in_degrees.get(node, 0)
-            # Tamaño base aumentado para mejor visibilidad
             size = 25 + (popularidad * 5) 
             color_fondo = COLORES_CURSO.get(curso, "#eeeeee")
             if popularidad >= 3:
@@ -329,7 +314,6 @@ else:
             if popularidad > 4: label += " 👑"
             title = f"<b>{node}</b><br>{curso}<br>Votos: {popularidad}"
             
-            # Fuente más grande y clara para el PDF
             net.add_node(node, label=label, title=title, color=color_fondo, size=size,
                          font={'size': 20, 'face': 'arial', 'color': 'black', 'strokeWidth': 2, 'strokeColor': '#ffffff'})
 
@@ -340,19 +324,19 @@ else:
             if es_mutua:
                 par = tuple(sorted((u, v)))
                 if par in dibujados_mutuos: continue
-                # Mutua: Roja, gruesa y sin flecha
                 net.add_edge(u, v, color="red", width=4, arrows={'to': {'enabled': False}})
                 dibujados_mutuos.add(par)
             else:
-                # Normal: Gris con flecha tipo 'vee'
                 rank = data.get('weight', '?')
                 color = "#666666" if rank == 1 else "#cccccc"
                 width = 2 if rank == 1 else 1
                 net.add_edge(u, v, color=color, width=width, dashes=True, arrows={'to': {'enabled': True, 'type': 'vee', 'scaleFactor': 1.2}})
 
         if physics_enabled:
-            # Físicas ajustadas para un grafo más espaciado y limpio
+            # Configuración inicial de física
             net.barnes_hut(gravity=-3000, central_gravity=0.1, spring_length=250, spring_strength=0.05, damping=0.09)
+            # ESTO ACTIVA LA BARRA DE AJUSTE DEBAJO DEL GRAFO
+            net.show_buttons(filter_=['physics'])
         else:
             net.toggle_physics(False)
 
@@ -360,10 +344,9 @@ else:
             net.save_graph(tmp.name)
             with open(tmp.name, 'r', encoding='utf-8') as f:
                 html_bytes = f.read()
-            # Usamos la nueva función de inyección para alta calidad
             html_final = inyectar_boton_pdf_alta_calidad(html_bytes)
             
-        st.components.v1.html(html_final, height=770)
+        st.components.v1.html(html_final, height=900) # Aumenté altura para que quepa la barra
         
         c1, c2, c3 = st.columns(3)
         c1.metric("Alumnos Visibles", len(G.nodes()))
