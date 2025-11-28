@@ -40,7 +40,6 @@ def cargar_desde_carpeta(ruta_carpeta, nombre_curso):
     """Lee todos los JSON de una ruta local específica."""
     data_parcial = {}
     
-    # Verificar si la carpeta existe
     if not os.path.exists(ruta_carpeta):
         st.sidebar.warning(f"⚠️ La carpeta no existe: {ruta_carpeta}")
         return data_parcial
@@ -62,7 +61,6 @@ def cargar_desde_carpeta(ruta_carpeta, nombre_curso):
 
             if nombre_completo:
                 origen = normalizar_nombre(nombre_completo)
-                # Guardamos ranking normalizado
                 destinos = [normalizar_nombre(k) for k in ranking.keys()]
                 
                 data_parcial[origen] = {
@@ -75,6 +73,61 @@ def cargar_desde_carpeta(ruta_carpeta, nombre_curso):
             
     return data_parcial
 
+def inyectar_boton_descarga(html_str):
+    """
+    Inyecta Javascript y CSS en el HTML generado por Pyvis 
+    para crear un botón de descarga de imagen (PNG).
+    """
+    script_descarga = """
+    <script>
+    function descargarImagen() {
+        var canvas = document.getElementsByTagName('canvas')[0];
+        // Crear un fondo blanco temporalmente si es transparente
+        var context = canvas.getContext('2d');
+        var w = canvas.width;
+        var h = canvas.height;
+        var data;
+
+        // Compuesto para asegurar fondo blanco en la imagen
+        var compositeOperation = context.globalCompositeOperation;
+        context.globalCompositeOperation = "destination-over";
+        context.fillStyle = "#ffffff";
+        context.fillRect(0,0,w,h);
+
+        var link = document.createElement('a');
+        link.download = 'sociograma_grafo.png';
+        link.href = canvas.toDataURL("image/png");
+        link.click();
+        
+        // Restaurar estado del canvas (opcional, visualmente imperceptible)
+        context.globalCompositeOperation = compositeOperation;
+    }
+    </script>
+    <style>
+    .btn-download {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        z-index: 1000;
+        background-color: #4CAF50;
+        color: white;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-family: sans-serif;
+        font-weight: bold;
+        box-shadow: 0px 2px 5px rgba(0,0,0,0.2);
+    }
+    .btn-download:hover {
+        background-color: #45a049;
+    }
+    </style>
+    <button onclick="descargarImagen()" class="btn-download">📸 Descargar Imagen</button>
+    """
+    # Insertar justo antes del cierre del body
+    return html_str.replace('</body>', f'{script_descarga}</body>')
+
 # =========================
 # Interfaz Principal
 # =========================
@@ -85,7 +138,6 @@ with st.sidebar:
     st.header("📂 Rutas de Carpetas")
     st.info("El programa buscará automáticamente en estas carpetas dentro de tu proyecto.")
 
-    # Rutas por defecto (puedes cambiarlas escribiendo en el cuadro)
     ruta_c1 = st.text_input("Carpeta Curso 1", value=os.path.join("respuestas", "curso1"))
     ruta_c2 = st.text_input("Carpeta Curso 2", value=os.path.join("respuestas", "curso2"))
     ruta_c3 = st.text_input("Carpeta Curso 3", value=os.path.join("respuestas", "curso3"))
@@ -93,7 +145,6 @@ with st.sidebar:
     if st.button("🔄 Cargar Carpetas y Generar"):
         st.session_state['datos_grafo'] = {}
         
-        # Cargar datos locales
         d1 = cargar_desde_carpeta(ruta_c1, "Curso 1")
         d2 = cargar_desde_carpeta(ruta_c2, "Curso 2")
         d3 = cargar_desde_carpeta(ruta_c3, "Curso 3")
@@ -115,8 +166,6 @@ with st.sidebar:
 # --- Área de Visualización ---
 if 'datos_grafo' not in st.session_state or not st.session_state['datos_grafo']:
     st.info("👈 Configura las carpetas a la izquierda y pulsa el botón para iniciar.")
-    
-    # Instrucciones de ayuda visual
     st.markdown("""
     ### Guía Rápida:
     1. Crea una carpeta llamada `respuestas` junto a este archivo.
@@ -143,11 +192,11 @@ else:
     # Configuración de Pyvis
     net = Network(height="650px", width="100%", bgcolor="#ffffff", font_color="black", directed=True)
     
+    # 1. Agregar Nodos
     for node in G.nodes():
         curso = G.nodes[node].get('group', 'Curso 1')
         popularidad = in_degrees.get(node, 0)
         
-        # Tamaño y Color
         size = 15 + (popularidad * 4)
         color_fondo = COLORES_CURSO.get(curso, "#eeeeee")
         if popularidad >= 3:
@@ -157,16 +206,30 @@ else:
         if popularidad > 4: label += " 👑"
         
         title_html = f"<b>{node}</b><br>Curso: {curso}<br>Votos recibidos: {popularidad}"
-
         net.add_node(node, label=label, title=title_html, color=color_fondo, size=size)
 
+    # 2. Agregar Aristas (Lógica Modificada para Mutuas)
+    procesados = set() # Para evitar duplicar aristas mutuas
+
     for u, v in G.edges():
+        # Si ya procesamos esta pareja (en orden inverso), saltamos
+        if (u, v) in procesados or (v, u) in procesados:
+            continue
+
         es_mutuo = G.has_edge(v, u)
-        color_linea = "red" if es_mutuo else "#cccccc"
-        width = 3 if es_mutuo else 1
-        dashes = False if es_mutuo else True
         
-        net.add_edge(u, v, color=color_linea, width=width, dashes=dashes)
+        if es_mutuo:
+            # CAMBIO 1: Mutua = Línea Roja, gruesa, SIN flechas
+            # 'arrows': {'to': {'enabled': False}} quita la punta de la flecha
+            net.add_edge(u, v, color="red", width=3, dashes=False, arrows={'to': {'enabled': False}})
+            
+            # Marcamos ambos sentidos como procesados para que el bucle no dibuje la vuelta
+            procesados.add((u, v))
+            procesados.add((v, u))
+        else:
+            # Normal = Línea Gris, punteada, con flecha estándar
+            net.add_edge(u, v, color="#cccccc", width=1, dashes=True, arrows='to')
+            procesados.add((u, v))
 
     if physics_enabled:
         net.barnes_hut(gravity=-2000, central_gravity=0.3, spring_length=120)
@@ -179,10 +242,13 @@ else:
         with open(tmp.name, 'r', encoding='utf-8') as f:
             html_bytes = f.read()
             
-    st.components.v1.html(html_bytes, height=670, scrolling=False)
+        # CAMBIO 2: Inyectar botón de descarga en el HTML
+        html_con_boton = inyectar_boton_descarga(html_bytes)
+            
+    st.components.v1.html(html_con_boton, height=670, scrolling=False)
     
     # Métricas
     c1, c2, c3 = st.columns(3)
     c1.metric("Alumnos", len(G.nodes()))
     c2.metric("Conexiones", len(G.edges()))
-    c3.metric("Mutuas", sum(1 for u, v in G.edges() if G.has_edge(v, u)) // 2)
+    c3.metric("Relaciones Mutuas", sum(1 for u, v in G.edges() if G.has_edge(v, u)) // 2)
